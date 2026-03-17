@@ -23,7 +23,7 @@
     "node": ">=18"
   },
   "dependencies": {
-    "@whiskeysockets/baileys": "7.0.0-rc.9",
+    "@whiskeysockets/baileys": "6.7.21",
     "dotenv": "^16.4.5",
     "ffmpeg-static": "^5.3.0",
     "pino": "^10.3.1",
@@ -35,7 +35,9 @@
     "@whiskeysockets/baileys": {
       "libsignal": "2.0.1"
     },
-    "libsignal": "2.0.1"
+    "libsignal": "2.0.1",
+    "@cacheable/node-cache": "1.4.0",
+    "cacheable": "1.7.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.0"

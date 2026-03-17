@@ -1,0 +1,9 @@
+﻿node_modules/
+.npm-cache/
+.env
+
+baileys_auth/
+baileys_wow_sessions/
+
+data/
+*.log

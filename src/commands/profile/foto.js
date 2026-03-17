@@ -47,6 +47,28 @@ function buildPhoneVariants(rawDigits) {
   return variants;
 }
 
+function extractMentionedJid(contextInfo) {
+  const mentioned = Array.isArray(contextInfo?.mentionedJid) ? contextInfo.mentionedJid : [];
+  const target = normalizeJid(mentioned[0] || "");
+  return target || "";
+}
+
+function extractPhoneArg(argsText) {
+  const parts = String(argsText || "")
+    .split(/\s+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+  return parts.find((token) => !token.startsWith("@")) || "";
+}
+
+function extractUserToken(jid) {
+  return String(jid || "")
+    .trim()
+    .split("@")[0]
+    .split(":")[0];
+}
+
 async function resolveWhatsAppJidByNumber(sock, digits) {
   if (!sock || typeof sock.onWhatsApp !== "function") {
     return "";
@@ -68,6 +90,33 @@ async function resolveWhatsAppJidByNumber(sock, digits) {
   }
 }
 
+async function resolveProfilePictureUrl(sock, targetJid) {
+  const token = extractUserToken(targetJid);
+  const attempts = [
+    normalizeJid(targetJid),
+    token ? normalizeJid(`${token}@s.whatsapp.net`) : "",
+    token ? normalizeJid(`${token}@lid`) : ""
+  ].filter(Boolean);
+
+  const tried = new Set();
+  for (const jid of attempts) {
+    if (tried.has(jid)) {
+      continue;
+    }
+    tried.add(jid);
+    try {
+      const url = await sock.profilePictureUrl(jid, "image");
+      if (url) {
+        return { url, resolvedJid: jid };
+      }
+    } catch {
+      // tenta próximo formato de JID
+    }
+  }
+
+  return { url: "", resolvedJid: normalizeJid(targetJid) };
+}
+
 async function downloadBufferFromUrl(url) {
   const response = await fetch(url);
   if (!response.ok) {
@@ -77,53 +126,62 @@ async function downloadBufferFromUrl(url) {
   return Buffer.from(raw);
 }
 
-async function executeFoto({ sock, config, message, chatId, text }) {
+async function executeFoto({ sock, config, message, chatId, text, contextInfo }) {
   const argsText = extractArgsText(text, config.commandPrefix, config.photoCommand);
-  const phoneArg = String(argsText || "").split(/\s+/).filter(Boolean)[0] || "";
-  const phoneDigits = normalizePhoneDigits(phoneArg);
+  const mentionedTargetJid = extractMentionedJid(contextInfo);
 
-  if (!phoneDigits) {
-    await sock.sendMessage(
-      chatId,
-      { text: `Use ${config.commandPrefix}${config.photoCommand} <número>` },
-      { quoted: message }
-    );
-    return;
-  }
+  let targetJid = mentionedTargetJid;
+  let captionLabel = "";
+  let useMentionCaption = false;
 
-  if (!/^\d{12,15}$/.test(phoneDigits)) {
-    await sock.sendMessage(
-      chatId,
-      { text: "Número inválido, use no formato +55 DDD Número" },
-      { quoted: message }
-    );
-    return;
-  }
+  if (targetJid) {
+    captionLabel = `@${extractUserToken(targetJid)}`;
+    useMentionCaption = true;
+  } else {
+    const phoneArg = extractPhoneArg(argsText);
+    const phoneDigits = normalizePhoneDigits(phoneArg);
 
-  const targetJid = await resolveWhatsAppJidByNumber(sock, phoneDigits);
-  if (!targetJid) {
-    await sock.sendMessage(
-      chatId,
-      { text: "Não encontrei esse número no WhatsApp" },
-      { quoted: message }
-    );
-    return;
+    if (!phoneDigits) {
+      await sock.sendMessage(
+        chatId,
+        { text: `Use ${config.commandPrefix}${config.photoCommand} <número> ou ${config.commandPrefix}${config.photoCommand} @pessoa` },
+        { quoted: message }
+      );
+      return;
+    }
+
+    if (!/^\d{12,15}$/.test(phoneDigits)) {
+      await sock.sendMessage(
+        chatId,
+        { text: "Número inválido, use no formato +55 DDD Número" },
+        { quoted: message }
+      );
+      return;
+    }
+
+    targetJid = await resolveWhatsAppJidByNumber(sock, phoneDigits);
+    captionLabel = phoneDigits;
+
+    if (!targetJid) {
+      await sock.sendMessage(
+        chatId,
+        { text: "Não encontrei esse número no WhatsApp" },
+        { quoted: message }
+      );
+      return;
+    }
   }
 
   if (isProtectedJid(config, targetJid)) {
     await sock.sendMessage(
       chatId,
-      { text: "Não é permitido consultar foto desse número" },
+      { text: "Não é permitido consultar foto desse usuário" },
       { quoted: message }
     );
     return;
   }
 
-  let profileUrl = "";
-  try {
-    profileUrl = await sock.profilePictureUrl(targetJid, "image");
-  } catch {
-  }
+  const { url: profileUrl, resolvedJid } = await resolveProfilePictureUrl(sock, targetJid);
 
   if (!profileUrl) {
     await sock.sendMessage(
@@ -138,13 +196,17 @@ async function executeFoto({ sock, config, message, chatId, text }) {
     const imageBuffer = await downloadBufferFromUrl(profileUrl);
     await sock.sendMessage(
       chatId,
-      { image: imageBuffer, caption: `Foto de perfil de ${phoneDigits}` },
+      {
+        image: imageBuffer,
+        caption: `Foto de perfil de ${captionLabel}`,
+        ...(useMentionCaption ? { mentions: [resolvedJid || targetJid] } : {})
+      },
       { quoted: message }
     );
   } catch {
     await sock.sendMessage(
       chatId,
-      { text: "Achei a foto, mas falhei ao baixar/enviar agora, tente novamente" },
+      { text: "Achei a foto, mas falhei ao baixar ou enviar agora, tente novamente" },
       { quoted: message }
     );
   }

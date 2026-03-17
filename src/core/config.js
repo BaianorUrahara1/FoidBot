@@ -1,5 +1,6 @@
-﻿require("dotenv").config();
+require("dotenv").config();
 const { normalizeJid } = require("../whatsapp/content");
+const { resolvePinnedJids } = require("./kernelState");
 
 function readEnv(name, fallback = "") {
   const raw = process.env[name];
@@ -28,13 +29,14 @@ function toProtectedJid(rawValue) {
   return toUserJid(value);
 }
 
-function parseProtectedJids(protectedNumber) {
+function parseProtectedJids(protectedNumber, lockedJids = []) {
   const fromEnvList = readEnv("PROTECTED_JIDS", "")
     .split(/[,\s]+/)
     .map((entry) => entry.trim())
     .filter(Boolean);
 
   const candidates = [
+    ...(Array.isArray(lockedJids) ? lockedJids : []),
     readEnv("PROTECTED_JID", ""),
     ...fromEnvList,
     protectedNumber
@@ -48,7 +50,7 @@ function parseProtectedJids(protectedNumber) {
     const key = normalizeJid(candidate);
     if (!seen.has(key)) {
       seen.add(key);
-      unique.push(candidate);
+      unique.push(key);
     }
   }
   return unique;
@@ -88,7 +90,7 @@ function parseAliasTokens(primaryToken, aliasesValue, fallbackAliases = []) {
 
 function assert(condition, message) {
   if (!condition) {
-    throw new Error(`Config inválida: ${message}`);
+    throw new Error(`Config invalida: ${message}`);
   }
 }
 
@@ -110,11 +112,12 @@ function validateConfig(config) {
 
   for (const token of commandTokens) {
     assert(token.length > 0, "comando vazio no .env");
-    assert(!/\s/.test(token), `comando inválido com espaço: ${token}`);
+    assert(!/\s/.test(token), `comando inválido com espaco: ${token}`);
   }
+
   for (const token of config.wowAliases || []) {
     assert(token.length > 0, "alias vazio em WOW_ALIASES");
-    assert(!/\s/.test(token), `alias inválido com espaço em WOW_ALIASES: ${token}`);
+    assert(!/\s/.test(token), `alias inválido com espaco em WOW_ALIASES: ${token}`);
   }
 
   assert(
@@ -125,18 +128,20 @@ function validateConfig(config) {
   if (config.wowBotPrivateTargetGroupJid) {
     assert(config.wowBotPrivateTargetGroupJid.endsWith("@g.us"), "WOW_PRIVATE_TARGET_GROUP_JID deve terminar com @g.us");
   }
+
   if (config.ratingGroupJid) {
     assert(config.ratingGroupJid.endsWith("@g.us"), "RATING_GROUP_JID deve terminar com @g.us");
   }
 
-  assert(config.authFolder.length > 0, "BAILEYS_AUTH_FOLDER não pode ser vazio");
-  assert(config.ratingDataFile.length > 0, "RATING_DATA_FILE não pode ser vazio");
+  assert(config.authFolder.length > 0, "BAILEYS_AUTH_FOLDER nao pode ser vazio");
+  assert(config.ratingDataFile.length > 0, "RATING_DATA_FILE nao pode ser vazio");
   assert(config.viewOnceCacheTotalBytes >= 10 * 1024 * 1024, "VIEW_ONCE_CACHE_TOTAL_MB deve ser >= 10");
   assert(config.viewOnceCachePerChat >= 5, "VIEW_ONCE_CACHE_PER_CHAT deve ser >= 5");
 }
 
 const protectedNumber = readEnv("PROTECTED_NUMBER", "").replace(/\D/g, "");
-const protectedJids = parseProtectedJids(protectedNumber);
+const lockedJids = resolvePinnedJids();
+const protectedJids = parseProtectedJids(protectedNumber, lockedJids);
 const cacheTotalMb = parsePositiveInt(readEnv("VIEW_ONCE_CACHE_TOTAL_MB", 160), 160);
 const cacheTotalBytes = cacheTotalMb * 1024 * 1024;
 const wowKeyword = normalizeCommandToken(readEnv("WOW_KEYWORD", "wow"), "wow");
@@ -166,6 +171,7 @@ const config = {
   protectedNumber,
   protectedJid: protectedJids[0] || toUserJid(protectedNumber) || "",
   protectedJids,
+  lockedJids,
   sendConfirmation: readEnv("SEND_CONFIRMATION", "false").toLowerCase() === "true",
   authFolder: readEnv("BAILEYS_AUTH_FOLDER", "baileys_auth"),
   runtimeSettingsFile: readEnv("RUNTIME_SETTINGS_FILE", "data/runtime-settings.json"),

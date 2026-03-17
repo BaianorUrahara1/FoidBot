@@ -1,4 +1,4 @@
-﻿const { hasCommandToken } = require("../../utils/commands");
+const { hasCommandToken } = require("../../utils/commands");
 const {
   normalizeJid,
   extractMessageSenderJid,
@@ -128,13 +128,14 @@ function buildCommandRegistry({ sock, store, config, ratingStore, wowSessionMana
         return hasCommandToken(text, config.commandPrefix, [config.photoCommand]);
       },
       label: `${config.commandPrefix}${config.photoCommand}`,
-      run({ message, chatId, text }) {
+      run({ message, chatId, text, contextInfo }) {
         return executeFoto({
           sock,
           config,
           message,
           chatId,
-          text
+          text,
+          contextInfo
         });
       }
     },
@@ -309,7 +310,7 @@ function createMessageHandler({ sock, store, config, ratingStore, wowSessionMana
       const previousLabel = `${rankUpAnnouncement.previous.rankLabel} (${rankUpAnnouncement.previous.score.toFixed(2)})`;
       const currentLabel = `${rankUpAnnouncement.current.rankLabel} (${rankUpAnnouncement.current.score.toFixed(2)})`;
       await sock.sendMessage(replyChatId, {
-        text: `O @${mentionToken} ascendeu de ${previousLabel} para ${currentLabel} aeeeeeeee, vamos dar os parabéns a ele 🎉🎉🎉`,
+        text: `O @${mentionToken} ascendeu de ${previousLabel} para ${currentLabel} aeeeeeeee, vamos dar os parabéns ao neguinho 🎉🎉🎉`,
         mentions: [senderJid]
       });
     }

@@ -1,4 +1,5 @@
 const { normalizeJid, extractTextFromContent } = require("../../whatsapp/content");
+const { isProtectedJid } = require("../media/mediaCommon");
 
 const MAX_RESTORE_AMOUNT = 20;
 
@@ -138,6 +139,16 @@ async function executeRestaurar({ sock, store, config, message, chatId, senderJi
   }
 
   const targetJid = normalizeJid(parsed.targetJid || senderJid);
+
+  if (isProtectedJid(config, targetJid)) {
+    await sock.sendMessage(
+      chatId,
+      { text: `Você não pode usar ${config.commandPrefix}${config.restoreCommand} para mensagens dessa pessoa` },
+      { quoted: message }
+    );
+    return;
+  }
+
   const entries = store.listDeletedMessagesByUser(chatId, targetJid, parsed.amount);
   if (!entries.length) {
     const targetToken = String(targetJid || "").split("@")[0];

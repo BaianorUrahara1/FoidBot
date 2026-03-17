@@ -36,6 +36,42 @@ function uniqueNormalizedJids(values) {
   return unique;
 }
 
+function normalizeAliasToken(value) {
+  const token = String(value || "").trim().toLowerCase();
+  if (!token || /\s/.test(token)) {
+    return "";
+  }
+  return token;
+}
+
+function normalizeWowAliases(values, primaryAlias) {
+  const primary = normalizeAliasToken(primaryAlias || "wow") || "wow";
+  const source = Array.isArray(values)
+    ? values
+    : String(values || "").split(/[\s,]+/);
+
+  const unique = [];
+  const seen = new Set();
+  const push = (value) => {
+    const token = normalizeAliasToken(value);
+    if (!token || seen.has(token)) {
+      return;
+    }
+    seen.add(token);
+    unique.push(token);
+  };
+
+  push(primary);
+  for (const value of source) {
+    push(value);
+  }
+
+  if (!unique.length) {
+    unique.push(primary);
+  }
+  return unique;
+}
+
 class RuntimeSettingsStore {
   constructor({ filePath, config, logger }) {
     this.filePath = path.resolve(process.cwd(), filePath || "data/runtime-settings.json");
@@ -49,16 +85,23 @@ class RuntimeSettingsStore {
       ratingGroupJid: "",
       mainCommandsGroupJid: "",
       protectedUserJid: "",
-      protectedNumber: ""
+      protectedNumber: "",
+      wowAliases: normalizeWowAliases(this.config?.wowAliases || [], this.config?.wowKeyword || "wow")
     };
   }
 
   normalizeState(input) {
+    const source = {
+      ...this.getDefaultState(),
+      ...(input || {})
+    };
+
     return {
-      ratingGroupJid: normalizeGroupJid(input?.ratingGroupJid || ""),
-      mainCommandsGroupJid: normalizeGroupJid(input?.mainCommandsGroupJid || ""),
-      protectedUserJid: normalizeJid(input?.protectedUserJid || ""),
-      protectedNumber: toDigits(input?.protectedNumber || "")
+      ratingGroupJid: normalizeGroupJid(source.ratingGroupJid || ""),
+      mainCommandsGroupJid: normalizeGroupJid(source.mainCommandsGroupJid || ""),
+      protectedUserJid: normalizeJid(source.protectedUserJid || ""),
+      protectedNumber: toDigits(source.protectedNumber || ""),
+      wowAliases: normalizeWowAliases(source.wowAliases || [], this.config?.wowKeyword || "wow")
     };
   }
 
@@ -107,9 +150,11 @@ class RuntimeSettingsStore {
 
   applyToConfig() {
     const numberJid = toUserJidFromNumber(this.state.protectedNumber);
+    const lockedJids = uniqueNormalizedJids(Array.isArray(this.config?.lockedJids) ? this.config.lockedJids : []);
     const protectedJids = uniqueNormalizedJids([
       this.state.protectedUserJid,
-      numberJid
+      numberJid,
+      ...lockedJids
     ]);
 
     this.config.ratingGroupJid = this.state.ratingGroupJid;
@@ -117,6 +162,7 @@ class RuntimeSettingsStore {
     this.config.protectedNumber = this.state.protectedNumber;
     this.config.protectedJids = protectedJids;
     this.config.protectedJid = protectedJids[0] || "";
+    this.config.wowAliases = normalizeWowAliases(this.state.wowAliases || [], this.config?.wowKeyword || "wow");
   }
 
   update(patch) {
@@ -145,6 +191,32 @@ class RuntimeSettingsStore {
     return this.update({ protectedNumber: number || "" });
   }
 
+  setWowAliases(aliases) {
+    return this.update({ wowAliases: aliases || [] });
+  }
+
+  addWowAliases(aliases) {
+    const nextAliases = normalizeWowAliases([
+      ...(Array.isArray(this.state?.wowAliases) ? this.state.wowAliases : []),
+      ...(Array.isArray(aliases) ? aliases : [aliases])
+    ], this.config?.wowKeyword || "wow");
+    return this.update({ wowAliases: nextAliases });
+  }
+
+  removeWowAliases(aliases) {
+    const removalTokens = new Set(
+      (Array.isArray(aliases) ? aliases : [aliases])
+        .map(normalizeAliasToken)
+        .filter(Boolean)
+    );
+
+    const primary = normalizeAliasToken(this.config?.wowKeyword || "wow") || "wow";
+    const current = normalizeWowAliases(this.state?.wowAliases || [], primary);
+    const next = current.filter((alias) => alias === primary || !removalTokens.has(alias));
+
+    return this.update({ wowAliases: next });
+  }
+
   getSnapshot() {
     const numberJid = toUserJidFromNumber(this.state.protectedNumber);
     const protectedJids = uniqueNormalizedJids([
@@ -154,6 +226,7 @@ class RuntimeSettingsStore {
 
     return {
       ...this.state,
+      wowAliases: normalizeWowAliases(this.state.wowAliases || [], this.config?.wowKeyword || "wow"),
       protectedJids
     };
   }
